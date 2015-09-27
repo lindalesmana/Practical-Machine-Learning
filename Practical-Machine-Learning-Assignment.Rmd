@@ -1,0 +1,140 @@
+---
+title: 'Practical Machine Learning Assignment'
+author: "Linda Lesmana"
+output: html_document
+---
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks.  
+
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this data set, 6 participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways.  
+
+Our goal in this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which they do the exercise. The training and testing data set used in this project come from this website: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).  
+<br>
+
+## Data Processing
+**Downloading the data**
+```{r}
+trainUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+if(!file.exists("./pml-training.csv")){
+    download.file(trainUrl, destfile="./pml-training.csv", method="curl")
+}
+if(!file.exists("./pml-testing.csv")){
+    download.file(testUrl, destfile="./pml-testing.csv", method="curl")
+}
+```
+
+<br>**Reading the data**
+```{r}
+trainRaw <- read.csv("pml-training.csv", na.strings = c("","NA","NULL"))
+testRaw <- read.csv("pml-testing.csv", na.strings = c("","NA","NULL"))
+dim(trainRaw)
+dim(testRaw)
+```
+The training data set consists of 19622 observations and 160 variables, while the testing data set consists of 20 observations and 160 variables. The "classe" variable in the last column of the training data set is the outcome to predict.  
+
+We then verify that all column names -except the last column- in the training and testing data set are identical.
+
+```{r}
+all.equal(colnames(trainRaw)[1:ncol(trainRaw)-1], colnames(testRaw)[1:ncol(testRaw)-1])
+```
+
+<br>**Screening the data**  
+To reduce the number of predictor variables, we first remove variables that have too many NA / missing values:
+```{r}
+trainCleaned <- trainRaw[,colSums(is.na(trainRaw))==0]
+dim(trainCleaned)
+```
+This reduces the number of predictor variables from 160 to 60.  
+
+<br>Next, we remove variables that seems to be unrelated with the outcome:
+```{r}
+irrelevant <- grep("X|user_name|timestamp|window", names(trainCleaned))
+trainCleaned <- trainCleaned[,-irrelevant]
+dim(trainCleaned)
+```
+The number of predictors is reduced further to 53.  
+
+<br>**Slicing the training data**  
+We then slice the training data into training data set (70%) and testing data set (30%). The testing data set will later be used for cross validation.
+```{r}
+library(caret)
+set.seed(1234)
+inTrain <- createDataPartition(y=trainCleaned$classe, p=0.7, list=FALSE)
+training <- trainCleaned[inTrain,]
+testing <- trainCleaned[-inTrain,]
+dim(training)
+dim(testing)
+```
+We have 13737 samples for training and 5885 samples for cross validation.  
+<br>
+
+##Data Modeling & Analysis
+In the first attempt, we try to create a model by applying Decision Tree algorithm
+
+**Modeling based on Decision Tree algorithm**  
+
+```{r}
+library(caret)
+modFitDT  <- train(classe ~., data=training, method="rpart")
+print(modFitDT$finalModel)
+```
+
+We test the performance of this model on the validation data set:
+```{r}
+predictDT <- predict(modFitDT, testing)
+confusionMatrix(predictDT, testing$classe)
+```
+
+```{r}
+accuracyDT <- as.numeric(confusionMatrix(predictDT,testing$classe)$overall[1])
+accuracyDT
+ooseDT <- 1 - accuracyDT
+ooseDT
+```
+
+The accuracy is estimated to be 0.489 which is considerably low and the estimated out-of-sample error is 0.511.  
+
+It seems that the single tree is not good enough. To improve the accuracy, we now apply the Random Forest algorithm.  
+<br>
+
+**Modeling based on Random Forest algorithm**  
+10-fold cross validation will be used when applying the algorithm
+
+```{r}
+controlRF <- trainControl(method="cv", 10)
+modFitRF  <- train(classe ~., data=training, method="rf", trControl=controlRF, ntree=250)
+modFitRF
+```
+
+We then test the performance of this model on the validation data set:
+```{r}
+predictRF <- predict(modFitRF, testing)
+confusionMatrix(predictRF, testing$classe)
+```
+
+```{r}
+accuracyRF <- as.numeric(confusionMatrix(predictRF,testing$classe)$overall[1])
+accuracyRF
+ooseRF <- 1 - accuracyRF
+ooseRF
+```
+
+As expected, Random Forest algorithm gives much better accuracy. With this model, the accuracy is estimated to be 0.9942 and the estimated out-of-sample error is 0.0057. 
+<br>
+
+##Predicting Outcome in Testing Data Set
+We now apply the Random Forest model to predict the outcome ("classe") for each of the 20 cases given in the testing data set.  
+
+```{r}
+answers <- predict(modFitRF, testRaw)
+answers
+```
+This model performs quite well as it accurately predict the outcome of all 20 cases in the testing data set.
+
+ 
+
+
+
+
